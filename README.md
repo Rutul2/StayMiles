@@ -36,7 +36,7 @@ StayMiles is a full-stack accommodation booking platform that allows users to ex
 ## 🚀 Getting Started
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/Rutul2/StayMiles.git
 cd StayMiles
 npm install
 npm start
