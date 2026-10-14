@@ -44,13 +44,8 @@ StayMiles/
 You need Node 20+ and a MongoDB database (Atlas or local).
 
 ```bash
-# 1. Backend
-npm install
-cp .env.example .env        # then fill in the values
-npm run dev                 # http://localhost:8080
-
-# 2. Frontend (second terminal)
-cd client
+git clone <repository-url>
+cd StayMiles
 npm install
 npm run dev                 # http://localhost:5173  (proxies /api to port 8080)
 ```
@@ -67,14 +62,6 @@ Optional: `npm run seed` fills a **local** MongoDB with sample listings and a de
 | `CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Image uploads |
 | `GEMINI_API_KEY` | Get one free at https://aistudio.google.com/app/apikey |
 | `GEMINI_MODEL` | Optional. Defaults to `gemini-2.5-flash`. Change it if Google retires the model |
-
-## Deploy (Render)
-
-One service serves both the API and the React build.
-
-- **Build command:** `npm install && npm run build`
-- **Start command:** `npm start`
-- **Environment:** all variables above, plus `NODE_ENV=production`
 
 ## API
 
