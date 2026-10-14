@@ -8,7 +8,7 @@ An accommodation platform where guests can explore stays and make smarter bookin
 | **Review summary** | Summarises guest reviews: what guests love, complaints, who it's best for | Google Gemini |
 | **Safety score** | Pulls safety keywords out of reviews and scores the stay from 1 to 10 | Google Gemini |
 
-**Stack:** React (Vite) · Node.js · Express 5 · MongoDB (Mongoose) · JWT authentication · Cloudinary · Joi
+**Stack:** React.js · Node.js · Express 5 · MongoDB (Mongoose) · JWT authentication · Cloudinary · Joi
 
 ## Project structure
 
@@ -41,16 +41,20 @@ StayMiles/
 
 ## Run locally
 
-You need Node 20+ and a MongoDB database (Atlas or local).
 
 ```bash
-git clone <repository-url>
-cd StayMiles
+# 1. Backend
+npm install
+cp .env.example .env        # then fill in the values
+npm run dev                 # http://localhost:8080
+
+# 2. Frontend (second terminal)
+cd client
 npm install
 npm run dev                 # http://localhost:5173  (proxies /api to port 8080)
 ```
 
-Optional: `npm run seed` fills a **local** MongoDB with sample listings and a demo host
+`npm run seed` fills a **local** MongoDB with sample listings and a demo host
 (`demohost@example.com` / `demo1234`).
 
 ### Environment variables
@@ -58,10 +62,11 @@ Optional: `npm run seed` fills a **local** MongoDB with sample listings and a de
 | Name | Purpose |
 |---|---|
 | `ATLASDB_URL` | MongoDB connection string |
-| `JWT_SECRET` | Secret used to sign login tokens. Use a long random value |
+| `JWT_SECRET` | Secret used to sign login tokens. |
 | `CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Image uploads |
-| `GEMINI_API_KEY` | Get one free at https://aistudio.google.com/app/apikey |
-| `GEMINI_MODEL` | Optional. Defaults to `gemini-2.5-flash`. Change it if Google retires the model |
+| `GEMINI_API_KEY` |
+| `GEMINI_MODEL` | `gemini-2.5-flash` |
+
 
 ## API
 
