@@ -1,155 +1,99 @@
 const Listing = require("../models/listing.js");
-const getSafetyScore = require("../utils/safetyScore");
-const getNearbyData = require("../utils/nearBy");
+const { cloudinary } = require("../cloudConfig.js");
+const ExpressError = require("../utils/expressError.js");
+
+const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Adds avgRating and reviewCount to a listing
+const withRating = (listing) => {
+    const obj = listing.toObject();
+    const ratings = (obj.reviews || []).map((r) => r.rating).filter(Number.isFinite);
+    obj.reviewCount = ratings.length;
+    obj.avgRating = ratings.length
+        ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10
+        : null;
+    return obj;
+};
+
+const deleteImage = async (filename) => {
+    if (!filename) return;
+    try {
+        await cloudinary.uploader.destroy(filename);
+    } catch (err) {
+        console.error("Could not delete image:", err.message); // not worth failing the request for
+    }
+};
 
 module.exports.index = async (req, res) => {
-    const search = req.query.search?.trim();
-    const filter = req.query.filter;
+    const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
 
-    let allListings;
+    const filter = search
+        ? {
+              $or: ["title", "location", "country"].map((field) => ({
+                  [field]: { $regex: escapeRegex(search), $options: "i" },
+              })),
+          }
+        : {};
 
-    // 🔍 PRIORITY 1 → SEARCH
-    if (search) {
-        allListings = await Listing.find({
-            $or: [
-                { title: { $regex: search, $options: "i" } },
-                { location: { $regex: search, $options: "i" } },
-                { country: { $regex: search, $options: "i" } }
-            ]
-        });
-    }
+    const listings = await Listing.find(filter)
+        .select("-aiSummary -safety")
+        .populate("reviews", "rating")
+        .sort({ _id: -1 });
 
-    // 🎯 PRIORITY 2 → FILTER (random)
-    else if (filter) {
-        allListings = await Listing.aggregate([{ $sample: { size: 4 } }]);
-    }
-
-    // 📦 DEFAULT → ALL
-    else {
-        allListings = await Listing.find({});
-    }
-
-    res.render("listings/index.ejs", { allListings, search });
+    res.json(
+        listings.map((listing) => {
+            const obj = withRating(listing);
+            delete obj.reviews; // the cards only need avgRating + reviewCount
+            return obj;
+        })
+    );
 };
-
-module.exports.new = (req, res) => {
-        res.render("listings/new.ejs")
-}
-
-// module.exports.showListing = async (req, res) => {
-//     let { id } = req.params;
-//     const listing = await Listing.findById(id).populate({path:"reviews",populate: {path:"author"}}).populate("owner");
-    
-    
-//     if (!listing) {
-//         req.flash("error", "Requested Listing Does Not Exist!");
-//         return res.redirect("/listings/");
-//     }
-//     console.log(listing);
-//     res.render("listings/show.ejs", { listing })
-// }
-
-const generateSummary = require("../utils/aiSummary");
 
 module.exports.showListing = async (req, res) => {
-    let { id } = req.params;
+    const listing = await Listing.findById(req.params.id)
+        .select("-aiSummary -safety")
+        .populate("owner", "username")
+        .populate({ path: "reviews", populate: { path: "author", select: "username" } });
 
-    const listing = await Listing.findById(id)
-        .populate({ path: "reviews", populate: { path: "author" } })
-        .populate("owner");
-
-    if (!listing) {
-        req.flash("error", "Requested Listing Does Not Exist!");
-        return res.redirect("/listings/");
-    }
-
-        // 💰 Price Breakdown Logic
-        const basePrice = listing.price;
-
-        const tax = Math.round(basePrice * 0.18); // 18% GST
-        const serviceFee = 100; // fixed
-
-        const totalPrice = basePrice + tax + serviceFee;
-
-        //nearBy Data
-        const nearby = await getNearbyData(listing.location);
-
-    //safety score
-    const safetyScore = await getSafetyScore(listing.reviews);
-
-    //AI summary
-    const aiSummary = await generateSummary(listing.reviews);
-
-        res.render("listings/show.ejs", {
-        listing,
-        aiSummary,
-        safetyScore,
-        basePrice,
-        tax,
-        serviceFee,
-        totalPrice, nearby
-    });
+    if (!listing) throw new ExpressError(404, "This listing does not exist");
+    res.json(withRating(listing));
 };
 
-module.exports.createListing = async (req, res, next) => {
-    if (!req.body.listing) {
-        throw new expressErr(400, "Enter Valid Data!")
-    }
-    // let result = ListingSchema.validate(req.body);
-    // if (result.error) {
-    //     throw new expressErr(400, result.error.details[0].message)
-    // }
-    let url = req.file.path;
-    let filename = req.file.filename;
-   
-    
-    const newListing = new Listing(req.body.listing);
-    newListing.owner = req.user._id;
-    newListing.image = {filename,url}
-    req.flash("success", "New Listing Created!")
-    await newListing.save();
-    res.redirect("/listings");
-}
+module.exports.createListing = async (req, res) => {
+    if (!req.file) throw new ExpressError(400, "Please upload a photo of the property");
 
-module.exports.editListing = async (req, res) => {
-    let { id } = req.params;
-    const listing = await Listing.findById(id);
-    if (!listing) {
-        req.flash("error", "Requested Listing Does Not Exist!");
-        return res.redirect("/listings/");
-    }
-    res.render("listings/edit.ejs", { listing })
-}
+    const listing = new Listing({
+        ...req.body,
+        owner: req.user._id,
+        image: { filename: req.file.filename, url: req.file.path },
+    });
+    await listing.save();
+    res.status(201).json(listing);
+};
 
 module.exports.updateListing = async (req, res) => {
-    let { id } = req.params;
-    // extract image separately
-    const { image, ...otherData } = req.body.listing;
-    // reconstruct the image object with correct key order (filename, url)
-     let url = req.file.path;
-    let filename = req.file.filename;
+    const listing = req.listing; // loaded by the isOwner middleware
 
-    const updatedListing = await Listing.findByIdAndUpdate(
-        id,
-        {
-            ...otherData,
-            image: {
-                filename: filename,   // keep same or set dynamically if needed
-                url: url
-            }
-        },
-        { new: true }
-    );
-    res.redirect(`/listings/${id}`);
-}
+    const addressChanged = req.body.location !== listing.location || req.body.country !== listing.country;
+    listing.set(req.body);
+
+    if (addressChanged) {
+        // Forget the old coordinates; they will be looked up again for the new address
+        listing.set("coordinates.lat", undefined);
+        listing.set("coordinates.lng", undefined);
+    }
+    if (req.file) {
+        await deleteImage(listing.image?.filename);
+        listing.image = { filename: req.file.filename, url: req.file.path };
+    }
+
+    await listing.save();
+    res.json(listing);
+};
 
 module.exports.destroyListing = async (req, res) => {
-    let { id } = req.params;
-    await Listing.findByIdAndDelete(id);
-    req.flash("success", "Listing Deleted!")
-    res.redirect(`/listings/`)
-
-}
-
-
-
+    // findByIdAndDelete triggers the hook in models/listing.js that removes its reviews
+    await Listing.findByIdAndDelete(req.params.id);
+    await deleteImage(req.listing.image?.filename);
+    res.json({ message: "Listing deleted" });
+};

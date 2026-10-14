@@ -1,30 +1,22 @@
-
-if (process.env.NODE_ENV !== "production") {
-    require("dotenv").config();
-}
-
+const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 
 cloudinary.config({
     cloud_name: process.env.CLOUD_NAME,
     api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET
+    api_secret: process.env.CLOUDINARY_API_SECRET,
 });
-
-
-console.log(process.env.CLOUDINARY_API_KEY);
-console.log(process.env.CLOUD_NAME);
-console.log(process.env.CLOUDINARY_API_SECRET);
-
-
 
 const storage = new CloudinaryStorage({
     cloudinary,
     params: {
         folder: "StayMiles",
-        allowed_formats: ["jpg", "png", "jpeg", "webp"]
-    }
+        allowed_formats: ["jpg", "png", "jpeg", "webp"],
+    },
 });
 
-module.exports = { cloudinary, storage };
+// `upload.single("image")` saves the file to Cloudinary and puts its URL on req.file
+const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
+
+module.exports = { cloudinary, storage, upload };

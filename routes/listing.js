@@ -1,57 +1,21 @@
-const express = require("express")
+const express = require("express");
 const router = express.Router();
-const wrapAsync = require("../utils/wrapAsync.js")
-const expressErr = require("../utils/expressError.js")
-const { ListingSchema } = require("../schema.js")
-const Listing = require("../models/listing.js");
-const { isLoggedIn } = require("../middleware.js")
-const listingController = require("../controller/listing.js")
+const { isLoggedIn, isOwner, validate } = require("../middleware.js");
+const { ListingSchema } = require("../schema.js");
+const { upload } = require("../cloudConfig.js");
+const listingController = require("../controller/listing.js");
+const insights = require("../controller/insights.js");
 
+router.get("/", listingController.index);
+router.post("/", isLoggedIn, upload.single("image"), validate(ListingSchema), listingController.createListing);
 
-// for file upload Multer 
-const multer = require('multer')
-const { storage } = require("../cloudConfig.js");
-const upload = multer({ storage })
-// const upload = multer({ dest: 'uploads/' })
+router.get("/:id", listingController.showListing);
+router.put("/:id", isLoggedIn, isOwner, upload.single("image"), validate(ListingSchema), listingController.updateListing);
+router.delete("/:id", isLoggedIn, isOwner, listingController.destroyListing);
 
-
-// validator function for listing
-const validateListing = (req, res, next) => {
-    let { error } = ListingSchema.validate(req.body);
-    if (error) {
-        throw new expressErr(400, result.error.details[0].message)
-    } else {
-        next()
-    }
-}
-
-// index Route
-router.get("/", wrapAsync(listingController.index))
-
-// New Route
-router.get("/new", isLoggedIn, listingController.new)
-
-// search route 
-// router.get("/search", wrapAsync(listingController.searchListing));
-
-// show route
-router.get("/:id", wrapAsync(listingController.showListing))
-
-// create route 
-router.post("/", isLoggedIn, validateListing,upload.single('listing[image]'), wrapAsync(listingController.createListing));
-
-
-
-
-// edit route 
-router.get("/:id/edit", isLoggedIn, wrapAsync(listingController.editListing))
-
-
-// update route 
-router.put("/:id", isLoggedIn,upload.single('listing[image]'), validateListing, wrapAsync(listingController.updateListing));
-
-
-// delete route 
-router.delete("/:id", isLoggedIn, wrapAsync(listingController.destroyListing))
+// The three headline features
+router.get("/:id/nearby", insights.nearby);   // Overpass API
+router.get("/:id/summary", insights.summary); // Gemini: review summary
+router.get("/:id/safety", insights.safety);   // Gemini: safety keywords + score
 
 module.exports = router;

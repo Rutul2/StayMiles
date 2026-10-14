@@ -1,27 +1,11 @@
-const express = require("express")
+const express = require("express");
 const router = express.Router();
-const User = require("../models/user.js");
-const wrapAsync = require("../utils/wrapAsync");
-const passport = require("passport");
-const {saveRedirectURL} = require("../middleware.js")
-const userController = require("../controller/user.js")
+const { isLoggedIn, validate } = require("../middleware.js");
+const { SignupSchema, LoginSchema } = require("../schema.js");
+const userController = require("../controller/user.js");
 
-router.get("/signup", userController.formRender)
-
-router.post("/signup", wrapAsync(userController.signUp))
-
-router.get("/login", userController.loginFrom)
-
-router.post(
-    "/login",
-    saveRedirectURL,
-    passport.authenticate("local", {
-        failureRedirect: "/login",
-        failureFlash: true
-    }),
-    userController.login
-)
-
-router.get("/logout", userController.logOut)
+router.post("/signup", validate(SignupSchema), userController.signUp);
+router.post("/login", validate(LoginSchema), userController.login);
+router.get("/me", isLoggedIn, userController.me); // lets React restore the session on page refresh
 
 module.exports = router;

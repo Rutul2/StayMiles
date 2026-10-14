@@ -1,43 +1,36 @@
-
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 const User = require("../models/user.js");
-module.exports.formRender = (req, res) => {
-    res.render("user/signup.ejs")
-}
+const ExpressError = require("../utils/expressError.js");
+
+// The token only carries the user id. It is signed, so it can't be edited, and it expires in 7 days.
+const signToken = (user) => jwt.sign({ id: user._id.toString() }, process.env.JWT_SECRET, { expiresIn: "7d" });
+
+const publicUser = (user) => ({ id: user._id, username: user.username, email: user.email });
 
 module.exports.signUp = async (req, res) => {
-    try {
-        let { email, username, password } = req.body;
-        let newuser = new User({ email, username })
-        let registereduser = await User.register(newuser, password)
-        req.login(registereduser, (err) => {
-            if (err) {
-                next(err);
-            }
-            req.flash("success", "Welcome to StayMiles")
-            res.redirect("/listings")
-        })
-    } catch (e) {
-        req.flash("error", e.message)
-        res.redirect("/signup")
-    }
+    const { username, email, password } = req.body;
 
-}
+    const exists = await User.findOne({ $or: [{ email: email.toLowerCase() }, { username }] });
+    if (exists) throw new ExpressError(409, "That username or email is already registered");
 
-module.exports.loginFrom = (req, res) => {
-    res.render("user/login.ejs")
-}
+    const hashed = await bcrypt.hash(password, 10); // 10 = salt rounds (cost)
+    const user = await User.create({ username, email: email.toLowerCase(), password: hashed });
+
+    res.status(201).json({ token: signToken(user), user: publicUser(user) });
+};
 
 module.exports.login = async (req, res) => {
-        req.flash("success", "Welcome Back To StayMiles!")
-        res.redirect(res.locals.redirectUrl || "/listings")
-    }
+    const { email, password } = req.body;
 
-module.exports.logOut = (req, res, next) => {
-    req.logOut((err) => {
-        if(err){
-            next(err)
-        }
-        req.flash("error", "You Are LogOut!")
-        res.redirect("/listings")
-    })
-}
+    const user = await User.findOne({ email: email.toLowerCase() }).select("+password");
+    const ok = user && user.password && (await bcrypt.compare(password, user.password));
+    // Same message for "no such user" and "wrong password" so attackers can't probe for emails
+    if (!ok) throw new ExpressError(401, "Incorrect email or password");
+
+    res.json({ token: signToken(user), user: publicUser(user) });
+};
+
+module.exports.me = (req, res) => {
+    res.json({ user: publicUser(req.user) });
+};

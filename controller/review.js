@@ -1,32 +1,29 @@
-
 const Review = require("../models/review.js");
 const Listing = require("../models/listing.js");
+const ExpressError = require("../utils/expressError.js");
 
-module.exports.createReview = async(req,res) =>{
-    let listing = await Listing.findById(req.params.id);
-    let newReview = new Review(req.body.review)
-    newReview.author = req.user._id;
-    listing.reviews.push(newReview);
+// Reviews changed, so the cached AI summary and safety score are out of date: remove them.
+const CLEAR_AI_CACHE = { aiSummary: "", safety: "" };
 
-    await newReview.save()
-    await listing.save()
-    
-    res.redirect(`/listings/${listing._id}`);
+module.exports.createReview = async (req, res) => {
+    const listing = await Listing.findById(req.params.id);
+    if (!listing) throw new ExpressError(404, "This listing does not exist");
 
-}
+    const review = await Review.create({ ...req.body, author: req.user._id });
+    await Listing.updateOne(
+        { _id: listing._id },
+        { $push: { reviews: review._id }, $unset: CLEAR_AI_CACHE }
+    );
+
+    await review.populate("author", "username");
+    res.status(201).json(review);
+};
 
 module.exports.destroyReview = async (req, res) => {
-    let { id, reviewsId } = req.params;
-
-    const review = await Review.findById(reviewsId);
-
-    if (!review.author.equals(res.locals.CurrUser._id)) {
-        req.flash("error", "You are not owner of this review");
-        return res.redirect(`/listings/${id}`);
-    }
-
-    await Listing.findByIdAndUpdate(id, { $pull: { reviews: reviewsId } });
-    await Review.findByIdAndDelete(reviewsId);
-
-    res.redirect(`/listings/${id}`);
-}
+    await Listing.updateOne(
+        { _id: req.params.id },
+        { $pull: { reviews: req.review._id }, $unset: CLEAR_AI_CACHE }
+    );
+    await req.review.deleteOne();
+    res.json({ message: "Review deleted" });
+};

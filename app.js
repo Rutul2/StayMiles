@@ -1,138 +1,60 @@
-require("dotenv").config();  
-console.log("FULL ENV:", process.env);
-console.log("MY KEY:", process.env.GEMINI_API_KEY);
-
-const express = require("express");
-const app = express();
-const mongoose = require("mongoose");
-const session = require("express-session");
-const Listing = require("./models/listing.js");
+require("dotenv").config();
 const path = require("path");
-const methodOverride = require("method-override");
-const ejsMate = require("ejs-mate");
-const expressErr = require("./utils/expressError.js");
-const listings = require("./routes/listing.js");
-const reviews = require("./routes/review.js");
-const user = require("./routes/user.js");
+const express = require("express");
+const mongoose = require("mongoose");
 
+const listingRoutes = require("./routes/listing.js");
+const reviewRoutes = require("./routes/review.js");
+const userRoutes = require("./routes/user.js");
+const ExpressError = require("./utils/expressError.js");
 
-const flash = require("connect-flash");
-
-//  DB URL from .env
 const DB_URL = process.env.ATLASDB_URL;
-
-//  Passport setup
-const passport = require("passport");
-const LocalStrategy = require("passport-local");
-const User = require("./models/user.js");
-
-//  View engine setup
-app.set("view engine", "ejs");
-app.engine("ejs", ejsMate);
-app.set("views", path.join(__dirname, "views"));
-
-// Middlewares
-app.use(express.urlencoded({ extended: true }));
-app.use(methodOverride("_method"));
-app.use(express.static(path.join(__dirname, "/public")));
-
-//  Session (LOCALHOST SIMPLE VERSION)
-const sessionOptions = {
-    secret: process.env.SECRET || "mysupersecret",
-    resave: false,
-    saveUninitialized: true,
-};
-
-app.use(session(sessionOptions));
-app.use(flash());
-
-// Passport middleware
-app.use(passport.initialize());
-app.use(passport.session());
-passport.use(new LocalStrategy(User.authenticate()));
-
-passport.serializeUser(User.serializeUser());
-passport.deserializeUser(User.deserializeUser());
-
-
 const PORT = process.env.PORT || 8080;
 
-//  Connect DB
-async function main() {
-    await mongoose.connect(DB_URL);
-    console.log("✅ Connected to DB");
-
-    app.listen(PORT, () => {
-        console.log(`🚀 Server running on port ${PORT}`);
-    });
+// Fail fast with a clear message instead of a confusing error later
+if (!DB_URL || !process.env.JWT_SECRET) {
+    console.error("Missing ATLASDB_URL or JWT_SECRET. Copy .env.example to .env and fill it in.");
+    process.exit(1);
 }
 
-main().catch(err => console.log(err));
+const app = express();
+app.use(express.json());
 
-console.log("DB_URL:", DB_URL);
+// ---------- API routes (all return JSON) ----------
+app.use("/api/auth", userRoutes);
+app.use("/api/listings", listingRoutes);
+app.use("/api/listings/:id/reviews", reviewRoutes);
+app.use("/api", (req, res, next) => next(new ExpressError(404, "API route not found")));
 
-//  Global locals
-app.use((req, res, next) => {
-    res.locals.success = req.flash("success");
-    res.locals.error = req.flash("error");
-    res.locals.CurrUser = req.user;
-    next();
-});
+// ---------- Production: serve the React build from the same server ----------
+if (process.env.NODE_ENV === "production") {
+    const dist = path.join(__dirname, "client", "dist");
+    app.use(express.static(dist));
+    // Any non-API URL (e.g. /listings/123) is handled by React Router in the browser
+    app.use((req, res) => res.sendFile(path.join(dist, "index.html")));
+}
 
-// ROUTES
-app.use("/listings", listings);
-app.use("/listings/:id/reviews", reviews);
-app.use("/", user);
-
-// HOME ROUTE (added to avoid 404 confusion)
-app.get("/", (req, res) => {
-    res.redirect("/listings");
-});
-
-//Demo routes
-app.get("/demouser", async (req, res) => {
-    let user1 = new User({
-        email: "abc@gmail.com",
-        username: "keyur@1234"
-    });
-
-    let user1data = await User.register(user1, "Keyur@1911");
-    res.send(user1data);
-});
-
-app.get("/testlisting", async (req, res) => {
-    let sampleListing = new Listing({
-        title: "This is First Listing",
-        description: "Good Good Good",
-        price: 1200,
-        location: "Surat",
-        country: "India"
-    });
-
-    await sampleListing.save();
-    res.send("Listing Created ✅");
-});
-
-//Track USer Behaviour
-app.use((req, res, next) => {
-    if (!req.session.userActivity) {
-        req.session.userActivity = {};
-    }
-    next();
-});
-
-// 404 handler
-app.use((req, res, next) => {
-    next(new expressErr(404, "Page Not Found!"));
-});
-
-// Error handler
+// ---------- One central error handler ----------
+// Express 5 forwards errors thrown inside async handlers here automatically.
 app.use((err, req, res, next) => {
-    console.log("🔥 ERROR >>>", err);
-    const { status = 500, message = "Something went wrong" } = err;
-    res.status(status).render("listings/error.ejs", { message, status });
+    if (err.name === "CastError") err = new ExpressError(404, "Not found"); // bad ObjectId in URL
+    if (err.code === "LIMIT_FILE_SIZE") err = new ExpressError(400, "Image must be smaller than 5 MB");
+
+    const status = err.status || 500;
+    if (status === 500) console.error(err);
+    res.status(status).json({
+        message: status === 500 ? "Something went wrong on our side. Please try again." : err.message,
+    });
 });
 
-
-
-
+mongoose.set("strictQuery", true);
+mongoose
+    .connect(DB_URL)
+    .then(() => {
+        console.log("Connected to MongoDB");
+        app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    })
+    .catch((err) => {
+        console.error("Could not connect to MongoDB:", err.message);
+        process.exit(1);
+    });
